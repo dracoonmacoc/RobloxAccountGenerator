@@ -1,197 +1,491 @@
+from flask import Flask, render_template, jsonify
 import random
-import time
+import string
+from datetime import datetime, timedelta
 from selenium import webdriver
-from selenium.common import NoSuchElementException
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.select import Select
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-import customtkinter as ctk
-from customtkinter import *
-from tkinter import messagebox
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
+import time
+import os
+import sys
+import zipfile
+import json
+import requests
 
-class RandomRobloxUser:
-    def __init__(self, password) -> None:
-        self.password = password
-        self.generate_user()
-        self.birth_day = random.randint(1, 30)
-        self.birth_month = random.randint(1, 12)
-        self.birth_year = str(random.randint(1970, 2009))
+app = Flask(__name__)
 
-    def generate_user(self):
-        while True:
-            first_name, last_name = self.generate_names()
-            random_number = random.randint(1, 99999)
-            self.user_name = f"{first_name}{last_name}{random_number}"
-            if len(self.user_name) <= 20:
-                break
+# NopeCHA Configuration - MUST BE SET AS ENVIRONMENT VARIABLE
+NOPECHA_API_KEY = os.environ.get('NOPECHA_API_KEY')
 
-    def generate_names(self):
-        with open("first_names.txt", 'r') as f:
-            first_names = f.readlines()
-        with open("last_names.txt", 'r') as f:
-            last_names = f.readlines()
-        first_name = random.choice(first_names).strip()
-        last_name = random.choice(last_names).strip()
-        return first_name, last_name
+if not NOPECHA_API_KEY:
+    raise ValueError(
+        "❌ NOPECHA_API_KEY environment variable is not set!\n"
+        "Please set it in Railway or your environment:\n"
+        "  Railway: Settings → Variables → Add NOPECHA_API_KEY\n"
+        "  Local: export NOPECHA_API_KEY='your-key-here'"
+    )
 
-def create_accounts(num_accounts, password, headless_var, nopecha_key):
-    current_working_directory = os.path.dirname(__file__)
-    chrome_driver_path = os.path.join(current_working_directory, "chromedriver.exe")
-    chrome_service = Service(executable_path=chrome_driver_path)
+def log(message):
+    """Enhanced logging that flushes immediately"""
+    print(message, flush=True)
+    sys.stdout.flush()
 
-    # Setup Nopecha extension
-    nopecha_extension_path = os.path.join(current_working_directory, "NopeCHA.crx")
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_extension(nopecha_extension_path)
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-infobars')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-
-    if headless_var:
-        chrome_options.add_argument("--headless")
-
-    driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-    # Navigate to the NopeCHA setup page to set the subscription key.
-    driver.get(f"https://nopecha.com/setup#{nopecha_key}")
-    time.sleep(15)
-    driver.get("https://roblox.com")
-
-    for _ in range(num_accounts):
-        random_user = RandomRobloxUser(password)
-
-        wait = WebDriverWait(driver, timeout=100)
-        birth_month = Select(wait.until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "#MonthDropdown"))))
-        birth_month.select_by_index(random_user.birth_month)
-        birth_day = Select(driver.find_element(By.CSS_SELECTOR, "#DayDropdown"))
-        birth_day.select_by_index(random_user.birth_day)
-        birth_year = Select(driver.find_element(By.CSS_SELECTOR, "#YearDropdown"))
-        birth_year.select_by_value(random_user.birth_year)
-        username = driver.find_element(By.CSS_SELECTOR, "#signup-username")
-        username.send_keys(random_user.user_name)
-        password_input_field = driver.find_element(By.CSS_SELECTOR, "#signup-password")
-        password_input_field.send_keys(random_user.password)
-        gender = driver.find_element(By.CSS_SELECTOR, random.choice(["#FemaleButton", "#MaleButton"]))
-        gender.click()
-        time.sleep(6)
-        signup_button = driver.find_element(By.CSS_SELECTOR, "#signup-button")
-        wait.until(EC.element_to_be_clickable(signup_button))
-        signup_button.click()
-        wait.until(EC.url_changes(driver.current_url))
-
-        roblox_cookie = driver.get_cookie(".ROBLOSECURITY")
-        if roblox_cookie:
-            roblox_cookie_value = roblox_cookie["value"]
-        with open("accounts.txt", "a") as f:
-            f.write(f"usr: {random_user.user_name}\n")
-            f.write(f"pass: {random_user.password}\n")
-            if roblox_cookie:
-                roblox_cookie_value = roblox_cookie["value"]
-                f.write(f"cookie: {roblox_cookie_value}\n\n")
-            else:
-                print("Failed to retrieve Roblox security cookie.")
-
-        time.sleep(6)
-
-        gear_icon = driver.find_element(By.CSS_SELECTOR, "#nav-settings")
-        gear_icon.click()
-        time.sleep(5)
-        logout_button = driver.find_element(By.CSS_SELECTOR, "#settings-popover-menu > li:nth-child(5) > a")
-        logout_button.click()
-        time.sleep(5)
-        selectors21 = [
-            "#rbx-body > div:nth-child(164) > div.fade.verification-modal.in.modal > div > div > div.modal-footer > div > button.change-email-button",
-            "#rbx-body > div:nth-child(165) > div.fade.verification-modal.in.modal > div > div > div.modal-footer > div > button.change-email-button"
-        ]
-        logout_step2_button = None
-        for selector in selectors21:
-            try:
-                logout_step2_button = driver.find_element(By.CSS_SELECTOR, selector)
-                break  # Exit the loop if the element is found
-            except NoSuchElementException:
-                continue  # Try the next selector if element not found
-
-        if logout_step2_button:
-            logout_step2_button.click()
-        else:
-            print("Logout step 2 button not found.")
-        time.sleep(5)
-        signup_button1 = driver.find_element(By.CSS_SELECTOR, "#sign-up-button")
-        signup_button1.click()
-        time.sleep(5)
-
-    driver.quit()
-
-def create_accounts_gui():
-    def submit():
+class RobloxGenerator:
+    def __init__(self):
+        self.accounts = []
+        self.nopecha_key = NOPECHA_API_KEY
+        self.extension_path = None
+        
+        log("=" * 60)
+        log("Initializing Roblox Account Generator")
+        log("Using NopeCHA Browser Extension Method")
+        log("=" * 60)
+        
+        # Setup extension on initialization
+        self.setup_nopecha_extension()
+    
+    def setup_nopecha_extension(self):
+        """Download and setup NopeCHA extension"""
         try:
-            num_accounts = int(num_accounts_entry.get())
-            password = password_entry.get()
-            nopecha_key = nopecha_key_entry.get()
-            enable_headless = headless_var.get() == 1
-            create_accounts(num_accounts, password, enable_headless ,nopecha_key)
-            messagebox.showinfo("Success", f"{num_accounts} accounts created successfully!")
+            log("\n🔧 Setting up NopeCHA extension...")
+            
+            extension_dir = '/tmp/nopecha_extension'
+            os.makedirs(extension_dir, exist_ok=True)
+            
+            crx_path = '/tmp/NopeCHA.crx'
+            
+            # Download the extension from GitHub
+            if not os.path.exists(crx_path):
+                log("   📥 Downloading NopeCHA extension from GitHub...")
+                url = "https://github.com/I0re/RobloxAccountGenerator/raw/master/NopeCHA.crx"
+                response = requests.get(url, timeout=30)
+                
+                if response.status_code == 200:
+                    with open(crx_path, 'wb') as f:
+                        f.write(response.content)
+                    log("   ✅ Extension downloaded successfully")
+                else:
+                    log(f"   ❌ Failed to download extension: HTTP {response.status_code}")
+                    return False
+            else:
+                log("   ✅ Extension already downloaded")
+            
+            # Unpack CRX to directory
+            log("   📦 Unpacking extension...")
+            try:
+                with zipfile.ZipFile(crx_path, 'r') as zip_ref:
+                    zip_ref.extractall(extension_dir)
+                log("   ✅ Extension unpacked")
+            except Exception as unpack_error:
+                log(f"   ⚠️  Could not unpack as ZIP, trying alternative method...")
+                # CRX files have a header, skip it and extract
+                with open(crx_path, 'rb') as f:
+                    data = f.read()
+                    # Skip CRX header (usually first 16 bytes for CRX3)
+                    zip_data = data[16:]
+                    with open('/tmp/temp.zip', 'wb') as temp_zip:
+                        temp_zip.write(zip_data)
+                    
+                    with zipfile.ZipFile('/tmp/temp.zip', 'r') as zip_ref:
+                        zip_ref.extractall(extension_dir)
+                    log("   ✅ Extension unpacked (alternative method)")
+            
+            # Configure extension with API key
+            log("   🔑 Configuring extension with API key...")
+            settings_file = os.path.join(extension_dir, 'settings.json')
+            
+            # Create/update settings file with API key
+            settings = {
+                "key": self.nopecha_key,
+                "enabled": True,
+                "autosolve": True
+            }
+            
+            with open(settings_file, 'w') as f:
+                json.dump(settings, f)
+            
+            log(f"   ✅ API key configured")
+            
+            self.extension_path = extension_dir
+            log(f"✅ NopeCHA extension ready at: {extension_dir}")
+            return True
+            
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+            log(f"❌ Error setting up extension: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def generate_username(self):
+        """Generate random username"""
+        adjectives = ['Cool', 'Epic', 'Pro', 'Super', 'Mega', 'Ultra', 'Ninja', 'Master', 'Swift', 'Dark', 
+                     'Fire', 'Ice', 'Thunder', 'Shadow', 'Cosmic', 'Cyber', 'Blaze', 'Storm', 'Nova', 'Stellar']
+        nouns = ['Gamer', 'Player', 'User', 'Dude', 'King', 'Boss', 'Legend', 'Hero', 'Wolf', 'Tiger',
+                'Dragon', 'Phoenix', 'Warrior', 'Knight', 'Falcon', 'Viper', 'Titan', 'Racer', 'Hunter', 'Reaper']
+        numbers = ''.join(random.choices(string.digits, k=4))
+        username = f"{random.choice(adjectives)}{random.choice(nouns)}{numbers}"
+        log(f"📝 Generated username: {username}")
+        return username
+    
+    def generate_password(self, length=12):
+        """Generate secure password"""
+        characters = string.ascii_letters + string.digits + "!@#$%"
+        password = ''.join(random.choices(characters, k=length))
+        
+        # Ensure it has at least one uppercase, lowercase, and digit
+        while not (any(c.isupper() for c in password) and 
+                   any(c.islower() for c in password) and 
+                   any(c.isdigit() for c in password)):
+            password = ''.join(random.choices(characters, k=length))
+        
+        log(f"🔒 Generated password: {password}")
+        return password
+    
+    def get_chrome_driver(self):
+        """Setup Chrome driver with NopeCHA extension"""
+        chrome_options = Options()
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--remote-debugging-port=9222')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Load NopeCHA extension
+        if self.extension_path and os.path.exists(self.extension_path):
+            chrome_options.add_argument(f'--load-extension={self.extension_path}')
+            chrome_options.add_argument('--disable-extensions-except=' + self.extension_path)
+            log("✅ NopeCHA extension will be loaded into Chrome")
+        else:
+            log("⚠️  Extension not found - CAPTCHAs will fail!")
+        
+        try:
+            log("\n🌐 Initializing Chrome driver...")
+            
+            # Check if we're on Railway/Linux with chromium
+            if os.path.exists('/usr/bin/chromium'):
+                chrome_options.binary_location = '/usr/bin/chromium'
+                log("   Found Chromium at /usr/bin/chromium")
+                
+                if os.path.exists('/usr/bin/chromedriver'):
+                    service = Service('/usr/bin/chromedriver')
+                    log("   Using chromedriver at /usr/bin/chromedriver")
+                else:
+                    log("   Installing chromedriver via webdriver-manager...")
+                    service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+                
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                log("✅ Chrome driver initialized successfully!")
+                return driver
+            else:
+                log("   Chromium not found, using webdriver-manager for Chrome...")
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                log("✅ Chrome driver initialized successfully!")
+                return driver
+                
+        except Exception as e:
+            log(f"❌ Error creating Chrome driver: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def generate_birthday(self):
+        """Generate valid birthday (13-25 years old for Roblox TOS)"""
+        today = datetime.now()
+        min_age = today - timedelta(days=365*25)
+        max_age = today - timedelta(days=365*13)
+        random_date = min_age + timedelta(
+            days=random.randint(0, (max_age - min_age).days)
+        )
+        birthday = {
+            'month': random_date.strftime("%b"),
+            'day': str(random_date.day),
+            'year': str(random_date.year)
+        }
+        log(f"🎂 Generated birthday: {birthday['month']} {birthday['day']}, {birthday['year']}")
+        return birthday
+    
+    def create_account_browser(self):
+        """Create Roblox account using browser automation with NopeCHA extension"""
+        username = self.generate_username()
+        password = self.generate_password()
+        birthday = self.generate_birthday()
+        
+        driver = None
+        try:
+            log("\n" + "=" * 60)
+            log("🎮 STARTING ROBLOX ACCOUNT CREATION")
+            log("=" * 60)
+            
+            driver = self.get_chrome_driver()
+            if not driver:
+                error_msg = "Could not initialize Chrome driver"
+                log(f"❌ {error_msg}")
+                return {
+                    "username": username,
+                    "password": password,
+                    "status": "error",
+                    "error": error_msg
+                }
+            
+            # Navigate to Roblox signup
+            log("\n🌐 Navigating to Roblox.com...")
+            driver.get("https://www.roblox.com/")
+            log(f"   Current URL: {driver.current_url}")
+            time.sleep(3)
+            
+            log("\n📝 Filling signup form...")
+            wait = WebDriverWait(driver, 15)
+            
+            # Fill birthday
+            log("   → Selecting birthday...")
+            
+            try:
+                # Month dropdown
+                month_select = wait.until(EC.presence_of_element_located((By.ID, "MonthDropdown")))
+                month_select.click()
+                time.sleep(0.5)
+                month_option = driver.find_element(By.XPATH, f"//option[@value='{birthday['month']}']")
+                month_option.click()
+                log(f"      ✓ Month: {birthday['month']}")
+                
+                # Day dropdown
+                day_select = driver.find_element(By.ID, "DayDropdown")
+                day_select.click()
+                time.sleep(0.5)
+                day_option = driver.find_element(By.XPATH, f"//option[@value='{birthday['day']}']")
+                day_option.click()
+                log(f"      ✓ Day: {birthday['day']}")
+                
+                # Year dropdown
+                year_select = driver.find_element(By.ID, "YearDropdown")
+                year_select.click()
+                time.sleep(0.5)
+                year_option = driver.find_element(By.XPATH, f"//option[@value='{birthday['year']}']")
+                year_option.click()
+                log(f"      ✓ Year: {birthday['year']}")
+                
+                time.sleep(1)
+            except Exception as bday_error:
+                log(f"❌ Error filling birthday: {bday_error}")
+                return {
+                    "username": username,
+                    "password": password,
+                    "status": "error",
+                    "error": f"Could not fill birthday fields: {str(bday_error)}"
+                }
+            
+            # Fill username
+            log("   → Entering username...")
+            try:
+                username_field = driver.find_element(By.ID, "signup-username")
+                username_field.clear()
+                username_field.send_keys(username)
+                time.sleep(1)
+                log(f"      ✓ Username: {username}")
+            except Exception as user_error:
+                log(f"❌ Error filling username: {user_error}")
+                return {
+                    "username": username,
+                    "password": password,
+                    "status": "error",
+                    "error": f"Could not fill username: {str(user_error)}"
+                }
+            
+            # Fill password
+            log("   → Entering password...")
+            try:
+                password_field = driver.find_element(By.ID, "signup-password")
+                password_field.clear()
+                password_field.send_keys(password)
+                time.sleep(1)
+                log(f"      ✓ Password: [HIDDEN]")
+            except Exception as pass_error:
+                log(f"❌ Error filling password: {pass_error}")
+                return {
+                    "username": username,
+                    "password": password,
+                    "status": "error",
+                    "error": f"Could not fill password: {str(pass_error)}"
+                }
+            
+            # Select gender (optional)
+            log("   → Selecting gender...")
+            try:
+                gender = random.choice(['male', 'female'])
+                try:
+                    gender_button = driver.find_element(By.ID, f"signup-{gender}")
+                    gender_button.click()
+                    log(f"      ✓ Gender: {gender}")
+                except:
+                    gender_buttons = driver.find_elements(By.TAG_NAME, "button")
+                    for btn in gender_buttons:
+                        aria_label = btn.get_attribute("aria-label") or ""
+                        if gender.lower() in btn.text.lower() or gender.lower() in aria_label.lower():
+                            btn.click()
+                            log(f"      ✓ Gender: {gender}")
+                            break
+                time.sleep(1)
+            except Exception as gender_error:
+                log(f"      ⚠️  Gender selection skipped: {gender_error}")
+            
+            # Click signup button
+            log("\n🚀 Submitting signup form...")
+            try:
+                signup_button = driver.find_element(By.ID, "signup-button")
+                signup_button.click()
+                log("   ✓ Signup button clicked")
+            except Exception as btn_error:
+                log(f"❌ Error clicking signup button: {btn_error}")
+                return {
+                    "username": username,
+                    "password": password,
+                    "status": "error",
+                    "error": f"Could not click signup button: {str(btn_error)}"
+                }
+            
+            # Wait for NopeCHA extension to solve CAPTCHA automatically
+            log("\n⏳ Waiting for NopeCHA extension to solve CAPTCHA...")
+            log("   (This may take 30-120 seconds)")
+            
+            # Monitor for success for up to 3 minutes
+            max_wait = 180  # 3 minutes
+            check_interval = 5
+            elapsed = 0
+            
+            while elapsed < max_wait:
+                time.sleep(check_interval)
+                elapsed += check_interval
+                
+                current_url = driver.current_url
+                
+                # Check for success indicators
+                success_indicators = ["home", "games", "/home", "/discover"]
+                if any(indicator in current_url.lower() for indicator in success_indicators):
+                    log(f"\n   [{elapsed}s] SUCCESS URL DETECTED: {current_url}")
+                    log("\n" + "=" * 60)
+                    log("✅ SUCCESS! ACCOUNT CREATED!")
+                    log("=" * 60)
+                    log(f"   NopeCHA solved the CAPTCHA in ~{elapsed} seconds")
+                    
+                    account_info = {
+                        "username": username,
+                        "password": password,
+                        "status": "success",
+                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "solve_time": f"{elapsed}s"
+                    }
+                    
+                    self.accounts.append(account_info)
+                    self.save_account(username, password)
+                    
+                    log(f"Username: {username}")
+                    log(f"Password: {password}")
+                    log(f"Created: {account_info['created_at']}")
+                    
+                    return account_info
+                
+                # Progress update every 15 seconds
+                if elapsed % 15 == 0:
+                    log(f"   [{elapsed}s] Still waiting... URL: {current_url}")
+            
+            # Timeout
+            log(f"\n❌ Timeout after {max_wait} seconds")
+            log(f"   Final URL: {driver.current_url}")
+            log("   CAPTCHA may not have been solved by extension")
+            
+            return {
+                "username": username,
+                "password": password,
+                "status": "timeout",
+                "error": f"Account creation timed out after {max_wait}s - CAPTCHA may not have been solved",
+                "final_url": driver.current_url
+            }
+                    
+        except Exception as e:
+            log(f"\n❌ EXCEPTION OCCURRED: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            return {
+                "username": username,
+                "password": password,
+                "status": "error",
+                "error": str(e)
+            }
+        finally:
+            if driver:
+                log("\n🔧 Cleaning up browser...")
+                try:
+                    driver.quit()
+                    log("✅ Browser closed")
+                except:
+                    log("⚠️  Error closing browser")
+    
+    def save_account(self, username, password):
+        """Save account to file"""
+        try:
+            with open('accounts.txt', 'a') as f:
+                f.write(f"{username}:{password}\n")
+            log(f"💾 Account saved to accounts.txt")
+        except Exception as e:
+            log(f"⚠️  Could not save to file: {e}")
 
-    root = CTk()
-    root.title("Roblox Account Creator")
-    icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.ico")
-    root.iconbitmap(icon_path)
-    root.geometry("330x290")
-    root.configure(bg="#333")  # Background color
-    root.resizable(False, False)  # Make the window non-resizable
+# Initialize generator
+generator = RobloxGenerator()
 
-    set_appearance_mode("dark")  # Set dark theme
+@app.route('/')
+def index():
+    """Serve the main page"""
+    return render_template('index.html')
 
-    frame = CTkFrame(master=root, width=200, height=200)
-    frame.grid(row=0, column=0, sticky="nsew")
+@app.route('/generate', methods=['POST'])
+def generate():
+    """Generate a new Roblox account"""
+    log("\n" + "=" * 60)
+    log("📨 Received account generation request from client")
+    log("=" * 60)
+    
+    result = generator.create_account_browser()
+    
+    log("\n📤 Sending response to client:")
+    log(f"   Status: {result.get('status')}")
+    log("=" * 60 + "\n")
+    
+    return jsonify(result)
 
-    num_accounts_label = CTkLabel(frame, text="Number of Accounts:")
-    num_accounts_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+@app.route('/accounts', methods=['GET'])
+def get_accounts():
+    """Get all generated accounts"""
+    return jsonify({"accounts": generator.accounts})
 
-    num_accounts_entry = CTkEntry(frame)
-    num_accounts_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "running",
+        "method": "nopecha_extension",
+        "extension_loaded": generator.extension_path is not None,
+        "accounts_generated": len(generator.accounts)
+    })
 
-    password_label = CTkLabel(frame, text="Password for Accounts:")
-    password_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
-
-    password_entry = CTkEntry(frame, show="")
-    password_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-    nopecha_key_label = CTkLabel(frame, text="NopeCHA Subscription Key:")
-    nopecha_key_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
-
-    nopecha_key_entry = CTkEntry(frame)  # Add entry widget for NopeCHA key
-    nopecha_key_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-
-    headless_label = CTkLabel(frame, text="Enable Headless Driver:")
-    headless_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
-
-    headless_var = ctk.IntVar()
-    headless_checkbox_yes = CTkCheckBox(frame, text="Yes", variable=headless_var, onvalue=1, offvalue=0)
-    headless_checkbox_yes.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-
-    submit_button = CTkButton(frame, text="Submit", command=submit)
-    submit_button.grid(row=4, columnspan=2, padx=10, pady=10)
-
-    frame.rowconfigure(0, weight=1)  # Make rows expandable
-    frame.rowconfigure(1, weight=1)
-    frame.rowconfigure(2, weight=1)
-    frame.rowconfigure(3, weight=1)
-    frame.columnconfigure(0, weight=1)  # Make columns expandable
-    frame.columnconfigure(1, weight=1)
-    frame.columnconfigure(2, weight=1)
-
-    root.grid_rowconfigure(0, weight=1)  # Make root widget expandable
-    root.grid_columnconfigure(0, weight=1)
-
-    root.mainloop()
-
-if __name__ == "__main__":
-    create_accounts_gui()
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    log("\n" + "=" * 60)
+    log(f"🚀 Starting Flask server on port {port}")
+    log("=" * 60)
+    log(f"📍 Local: http://localhost:{port}")
+    log(f"🌐 Network: http://0.0.0.0:{port}")
+    log("=" * 60 + "\n")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
